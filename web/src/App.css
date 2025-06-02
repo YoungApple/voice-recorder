@@ -1,0 +1,8 @@
+#root {
+  /* max-width: 1280px; */ /* Consider removing if Tailwind handles max-width elsewhere */
+  /* margin: 0 auto; */    /* Tailwind's mx-auto can handle this */
+  /* padding: 2rem; */     /* Apply padding via Tailwind classes where needed */
+  /* text-align: center; */ /* Apply text alignment via Tailwind classes where needed */
+}
+
+/* Removed unused logo, card, and read-the-docs styles as Tailwind is used for styling components. */

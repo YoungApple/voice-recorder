@@ -1,0 +1,69 @@
+# 忽略编译输出和可执行文件
+/target/
+**/*.rs.bk
+
+# 忽略IDE相关文件
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 忽略本地环境文件
+.env
+.env.local
+
+# 忽略日志文件
+*.log
+
+# 忽略系统文件
+.DS_Store
+
+# 忽略测试覆盖率报告
+/coverage/
+
+# 忽略前端构建文件
+/web/dist/
+/web/node_modules/
+/target/
+**/*.rs.bk
+
+# 忽略IDE相关文件
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 忽略本地环境文件
+.env
+.env.local
+
+# 忽略日志文件
+*.log
+
+# 忽略系统文件
+.DS_Store
+
+# 忽略测试覆盖率报告
+/coverage/
+
+# 忽略前端构建文件
+/web/dist/
+/web/node_modules/
+.trae 
+.cursor
+local_storage
+node_modules
+target
+**/*.rs.bk
+**/*.bk
+**/*.swp
+**/*.swo
+.env
+.env.local
+*.log
+.DS_Store
+/coverage/
+/web/dist/
+/web/node_modules/
+rust_crash_course
+web_bak*
