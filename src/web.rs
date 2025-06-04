@@ -15,7 +15,7 @@ use uuid::Uuid;
 use chrono::Utc;
 
 use crate::audio::VoiceRecorder;
-use crate::config::{Config, LegacyConfig};
+use crate::config::LegacyConfig;
 use crate::storage::{self, VoiceSession};
 
 #[derive(Debug, Deserialize)]

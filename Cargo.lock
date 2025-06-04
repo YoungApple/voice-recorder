@@ -2810,6 +2810,7 @@ dependencies = [
  "lazy_static",
  "log",
  "rdev",
+ "regex",
  "reqwest",
  "rodio",
  "serde",

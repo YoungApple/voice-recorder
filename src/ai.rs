@@ -1,39 +1,49 @@
-// src/ai.rs
+// ai.rs
 use anyhow::Result;
-use async_openai::{
-    types::{ChatCompletionRequestMessage, CreateChatCompletionRequestArgs, ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs},
-    Client,
-    config::OpenAIConfig,
+use async_openai::config::OpenAIConfig;
+use async_openai::types::{
+    ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs,
+    ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs,
 };
-use /* serde::{Deserialize, Serialize}, */ log::{info/* , warn, error */};
+use async_openai::Client;
+use log::{info /* , warn, error */};
 use std::fmt;
 
-use crate::{ollama::analyze_with_ollama, storage::AnalysisResult};
+use crate::{
+    ollama::mod_v2::analyze_with_ollama_v2, storage::AnalysisResult,
+};
 
+use crate::config::AiProvider;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use tokio::fs;
-use crate::config::AiProvider;
 
-pub async fn transcribe_audio(audio_path: &Path) -> Result<String> {
+pub async fn transcribe_audio(audio_path: &Path) -> Result<String, anyhow::Error> {
     let config = crate::config::load_config().await?;
-    
+
     match config.ai_provider {
         AiProvider::OpenAI => {
             if let Some(_api_key) = &config.api_keys.openai_api_key {
                 transcribe_with_openai(audio_path, _api_key).await
             } else {
                 // error!("OpenAI API key is not configured. Please set it in the config file.");
-                Err(anyhow::anyhow!("OpenAI API key is not configured. Please set it in the config file."))
+                Err(anyhow::anyhow!(
+                    "OpenAI API key is not configured. Please set it in the config file."
+                ))
             }
         }
-        
+
         AiProvider::WhisperCpp => {
-            if let (Some(model_path), Some(executable_path)) = (&config.speech_model.whisper_model_path, &config.speech_model.whisper_executable_path) {
+            if let (Some(model_path), Some(executable_path)) = (
+                &config.speech_model.whisper_model_path,
+                &config.speech_model.whisper_executable_path,
+            ) {
                 transcribe_with_whisper_cpp(audio_path, model_path, executable_path).await
             } else {
                 // error!("Whisper.cpp model path or executable path not set in config.");
-                Err(anyhow::anyhow!("Whisper.cpp model path or executable path not set in config."))
+                Err(anyhow::anyhow!(
+                    "Whisper.cpp model path or executable path not set in config."
+                ))
             }
         }
         AiProvider::Ollama => {
@@ -44,7 +54,11 @@ pub async fn transcribe_audio(audio_path: &Path) -> Result<String> {
 }
 
 // Function to call Whisper.cpp executable for transcription
-async fn transcribe_with_whisper_cpp(audio_path: &Path, model_path: &str, executable_path: &str) -> Result<String> {
+async fn transcribe_with_whisper_cpp(
+    audio_path: &Path,
+    model_path: &str,
+    executable_path: &str,
+) -> Result<String, anyhow::Error> {
     info!(
         "[Whisper.cpp] Attempting transcription:\n  Executable: {}\n  Model: {}\n  Audio file: {}",
         executable_path,
@@ -56,10 +70,16 @@ async fn transcribe_with_whisper_cpp(audio_path: &Path, model_path: &str, execut
         audio_path.to_path_buf()
     } else {
         let current_dir = std::env::current_dir()?;
-        info!("[Whisper.cpp] Audio path is relative. Current directory: {}", current_dir.display());
+        info!(
+            "[Whisper.cpp] Audio path is relative. Current directory: {}",
+            current_dir.display()
+        );
         current_dir.join(audio_path)
     };
-    info!("[Whisper.cpp] Absolute audio path: {}", absolute_audio_path.display());
+    info!(
+        "[Whisper.cpp] Absolute audio path: {}",
+        absolute_audio_path.display()
+    );
 
     let command_str = format!(
         "{} -m {} -f {} -l auto -otxt",
@@ -73,7 +93,11 @@ async fn transcribe_with_whisper_cpp(audio_path: &Path, model_path: &str, execut
         .arg("-m")
         .arg(model_path)
         .arg("-f")
-        .arg(absolute_audio_path.to_str().ok_or_else(|| anyhow::anyhow!("Invalid audio file path"))?)
+        .arg(
+            absolute_audio_path
+                .to_str()
+                .ok_or_else(|| anyhow::anyhow!("Invalid audio file path"))?,
+        )
         .arg("-l")
         .arg("auto") // Specify Chinese language
         .arg("-otxt") // Output as plain text
@@ -85,19 +109,28 @@ async fn transcribe_with_whisper_cpp(audio_path: &Path, model_path: &str, execut
         Ok(output_result) => {
             let stdout_str = String::from_utf8_lossy(&output_result.stdout);
             let stderr_str = String::from_utf8_lossy(&output_result.stderr);
-            info!("[Whisper.cpp] Process exited with status: {}", output_result.status);
+            info!(
+                "[Whisper.cpp] Process exited with status: {}",
+                output_result.status
+            );
             info!("[Whisper.cpp] STDOUT:\n{}", stdout_str);
             info!("[Whisper.cpp] STDERR:\n{}", stderr_str);
 
             if output_result.status.success() {
                 let output_txt_path = absolute_audio_path.with_extension("wav.txt");
-                info!("[Whisper.cpp] Attempting to read transcript from: {}", output_txt_path.display());
-                
+                info!(
+                    "[Whisper.cpp] Attempting to read transcript from: {}",
+                    output_txt_path.display()
+                );
+
                 match fs::read_to_string(&output_txt_path).await {
                     Ok(content) => {
-                        info!("[Whisper.cpp] Successfully read transcript file. Content length: {}", content.len());
+                        info!(
+                            "[Whisper.cpp] Successfully read transcript file. Content length: {}",
+                            content.len()
+                        );
                         // Optionally, remove the .txt file after reading
-                        // fs::remove_file(output_txt_path).await.ok(); 
+                        // fs::remove_file(output_txt_path).await.ok();
                         Ok(content.trim().to_string())
                     }
                     Err(e) => {
@@ -127,19 +160,22 @@ async fn transcribe_with_whisper_cpp(audio_path: &Path, model_path: &str, execut
     }
 }
 
-pub async fn analyze_transcript(transcript: &str) -> Result<AnalysisResult> {
+pub async fn analyze_transcript(transcript: &str) -> Result<AnalysisResult, anyhow::Error> {
     let config = crate::config::load_config().await?;
 
     // Determine which text model provider to use for analysis.
     // If the main ai_provider is WhisperCpp, we look at the text_model.provider configuration.
     // Otherwise, the main ai_provider (OpenAI, Ollama, Local) dictates the analysis method.
-    let provider_for_analysis= AiProvider::Ollama;
-    let mut use_openai_key: Option<String> = None;
+    let provider_for_analysis = AiProvider::Ollama;
+    let use_openai_key: Option<String> = None;
 
     let ollama_settings_for_analysis = config.text_model.ollama_settings.clone();
     let local_model_endpoint_for_analysis = config.text_model.local_model_path.clone();
 
-    info!("Analyzing transcript with provider: {}", provider_for_analysis);
+    info!(
+        "Analyzing transcript with provider: {}",
+        provider_for_analysis
+    );
 
     match provider_for_analysis {
         AiProvider::OpenAI => {
@@ -147,38 +183,51 @@ pub async fn analyze_transcript(transcript: &str) -> Result<AnalysisResult> {
                 analyze_with_openai(transcript, &api_key).await
             } else {
                 // error!("OpenAI API key not configured for analysis.");
-                Err(anyhow::anyhow!("OpenAI API key not configured for analysis."))
+                Err(anyhow::anyhow!(
+                    "OpenAI API key not configured for analysis."
+                ))
             }
         }
         AiProvider::Ollama => {
             if let Some(ollama_settings) = ollama_settings_for_analysis {
                 if ollama_settings.enabled {
-                    analyze_with_ollama(transcript, &ollama_settings.endpoint, &ollama_settings.model_name).await
+                    // 使用 v2 版本的 Ollama 分析函数
+                    analyze_with_ollama_v2(transcript, &ollama_settings.endpoint).await
                 } else {
                     // warn!("Ollama is disabled in config. Skipping analysis.");
-                    Ok(AnalysisResult::default_with_summary("Ollama analysis skipped (disabled).".to_string()))
+                    Ok(AnalysisResult::default_with_summary(
+                        "Ollama analysis skipped (disabled).".to_string(),
+                    ))
                 }
             } else {
                 // error!("Ollama settings not configured for analysis.");
-                Err(anyhow::anyhow!("Ollama settings not configured for analysis."))
+                Err(anyhow::anyhow!(
+                    "Ollama settings not configured for analysis."
+                ))
             }
         }
         _ => {
             // warn!("No analysis provider configured or recognized. Skipping analysis.");
-            Ok(AnalysisResult::default_with_summary("No analysis performed.".to_string()))
+            Ok(AnalysisResult::default_with_summary(
+                "No analysis performed.".to_string(),
+            ))
         }
     }
 }
 
-async fn transcribe_with_openai(audio_path: &Path, _api_key: &str) -> Result<String> {
+async fn transcribe_with_openai(
+    audio_path: &Path,
+    _api_key: &str,
+) -> Result<String, anyhow::Error> {
     info!("[OpenAI] Transcribing audio file: {}", audio_path.display());
     // Placeholder for actual OpenAI transcription logic
     Ok(format!("OpenAI transcription of {}", audio_path.display()))
 }
 
-
-
-async fn analyze_with_openai(transcript: &str, api_key: &str) -> Result<AnalysisResult> {
+async fn analyze_with_openai(
+    transcript: &str,
+    api_key: &str,
+) -> Result<AnalysisResult, anyhow::Error> {
     info!("[OpenAI Analysis] Analyzing transcript: '{}'", transcript);
     let client = Client::with_config(OpenAIConfig::new().with_api_key(api_key));
 
@@ -186,9 +235,14 @@ async fn analyze_with_openai(transcript: &str, api_key: &str) -> Result<Analysis
         .content("You are a helpful assistant that analyzes meeting transcripts. Extract key ideas, tasks, and structured notes. Provide a concise summary.")
         .build()?);
 
-    let user_message = ChatCompletionRequestMessage::User(ChatCompletionRequestUserMessageArgs::default()
-        .content(format!("Analyze the following transcript:\n\n{}", transcript))
-        .build()?);
+    let user_message = ChatCompletionRequestMessage::User(
+        ChatCompletionRequestUserMessageArgs::default()
+            .content(format!(
+                "Analyze the following transcript:\n\n{}",
+                transcript
+            ))
+            .build()?,
+    );
 
     let request = CreateChatCompletionRequestArgs::default()
         .model("gpt-4o") // Or another suitable model like "gpt-3.5-turbo"
@@ -197,7 +251,11 @@ async fn analyze_with_openai(transcript: &str, api_key: &str) -> Result<Analysis
 
     let response = client.chat().create(request).await?;
 
-    let analysis_text = response.choices[0].message.content.clone().unwrap_or_default();
+    let analysis_text = response.choices[0]
+        .message
+        .content
+        .clone()
+        .unwrap_or_default();
     info!("[OpenAI Analysis] Raw analysis response: {}", analysis_text);
 
     // Simple parsing for demonstration. A more robust solution would use structured JSON output from the AI.
@@ -229,7 +287,13 @@ fn extract_list(text: &str, prefix: &str) -> Vec<String> {
         .skip_while(|line| !line.starts_with(prefix))
         .skip(1) // Skip the prefix line itself
         .take_while(|line| !line.is_empty() && !line.contains(":")) // Stop at next section or empty line
-        .filter_map(|line| line.trim_start_matches("-").trim_start_matches("*").trim().to_string().into())
+        .filter_map(|line| {
+            line.trim_start_matches("-")
+                .trim_start_matches("*")
+                .trim()
+                .to_string()
+                .into()
+        })
         .collect()
 }
 
@@ -239,8 +303,14 @@ fn extract_tasks(text: &str, prefix: &str) -> Vec<crate::storage::Task> {
         .skip(1)
         .take_while(|line| !line.is_empty() && !line.contains(":"))
         .filter_map(|line| {
-            let cleaned_line = line.trim_start_matches("-").trim_start_matches("*").trim().to_string();
-            if cleaned_line.is_empty() { return None; }
+            let cleaned_line = line
+                .trim_start_matches("-")
+                .trim_start_matches("*")
+                .trim()
+                .to_string();
+            if cleaned_line.is_empty() {
+                return None;
+            }
             Some(crate::storage::Task {
                 title: cleaned_line,
                 description: None,
@@ -257,8 +327,14 @@ fn extract_structured_notes(text: &str, prefix: &str) -> Vec<crate::storage::Str
         .skip(1)
         .take_while(|line| !line.is_empty() && !line.contains(":"))
         .filter_map(|line| {
-            let cleaned_line = line.trim_start_matches("-").trim_start_matches("*").trim().to_string();
-            if cleaned_line.is_empty() { return None; }
+            let cleaned_line = line
+                .trim_start_matches("-")
+                .trim_start_matches("*")
+                .trim()
+                .to_string();
+            if cleaned_line.is_empty() {
+                return None;
+            }
             Some(crate::storage::StructuredNote {
                 title: cleaned_line,
                 content: "".to_string(),
