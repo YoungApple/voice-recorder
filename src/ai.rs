@@ -9,14 +9,14 @@ use async_openai::Client;
 use log::{info /* , warn, error */};
 use std::fmt;
 
-use crate::{
-    ollama::mod_v2::analyze_with_ollama_v2, storage::AnalysisResult,
-};
+use crate::ollama::analyze_with_ollama_v2;
+use crate::storage::{AnalysisResult, Task, Priority, StructuredNote, NoteType};
 
 use crate::config::AiProvider;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use tokio::fs;
+use chrono::Utc;
 
 pub async fn transcribe_audio(audio_path: &Path) -> Result<String, anyhow::Error> {
     let config = crate::config::load_config().await?;
@@ -160,8 +160,63 @@ async fn transcribe_with_whisper_cpp(
     }
 }
 
+// 创建离线模式下的默认分析结果
+fn create_offline_analysis_result(transcript: &str) -> AnalysisResult {
+    // 从转录文本中提取前几个词作为标题
+    let words: Vec<&str> = transcript.split_whitespace().take(5).collect();
+    let title = if !words.is_empty() {
+        format!("{}...", words.join(" "))
+    } else {
+        "离线模式转录".to_string()
+    };
+    
+    // 使用转录文本的前100个字符作为摘要
+    let preview = if transcript.chars().count() > 100 {
+        let mut result = String::new();
+        for (i, c) in transcript.chars().enumerate() {
+            if i < 100 {
+                result.push(c);
+            } else {
+                break;
+            }
+        }
+        format!("{result}...")
+    } else {
+        transcript.to_string()
+    };
+    let summary = format!("[离线模式] {}", preview);
+    
+    // 创建基本的分析结果
+    AnalysisResult {
+        title,
+        summary,
+        ideas: vec!["[离线模式] 无法连接到AI服务，无法提取想法".to_string()],
+        tasks: vec![Task {
+            title: "检查网络连接".to_string(),
+            description: Some("当前处于离线模式，无法连接到AI服务进行分析".to_string()),
+            priority: Priority::Medium,
+            due_date: None,
+        }],
+        structured_notes: vec![StructuredNote {
+            title: "离线模式通知".to_string(),
+            content: "当前处于离线模式，无法连接到AI服务进行分析。请检查网络连接或Ollama服务是否正常运行。".to_string(),
+            tags: vec!["离线".to_string(), "需要重新分析".to_string()],
+            note_type: NoteType::Reference,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }],
+    }
+}
+
 pub async fn analyze_transcript(transcript: &str) -> Result<AnalysisResult, anyhow::Error> {
     let config = crate::config::load_config().await?;
+
+    // 检查是否有OFFLINE环境变量或命令行参数
+    let offline_mode = std::env::var("OFFLINE").is_ok();
+    if offline_mode {
+        info!("Running in offline mode. Returning default analysis result.");
+        return Ok(create_offline_analysis_result(transcript));
+    }
 
     // Determine which text model provider to use for analysis.
     // If the main ai_provider is WhisperCpp, we look at the text_model.provider configuration.
